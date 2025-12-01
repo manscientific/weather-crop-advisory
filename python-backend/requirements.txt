@@ -1,11 +1,5 @@
 fastapi
 uvicorn
-requests
 python-dotenv
 pydantic
-schedule
-apscheduler
-smtplib
-email-validator
-passlib[bcrypt]
-python-jose
+google-genai
