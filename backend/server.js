@@ -6,6 +6,9 @@ import authRoutes from "./routes/authRoutes.js";
 import advisoryRoutes from "./routes/advisoryRoutes.js";
 import historyRoutes from "./routes/historyRoutes.js";
 
+
+
+
 dotenv.config();
 connectDB();
 
@@ -26,6 +29,8 @@ app.get("/", (req, res) => {
 app.use("/api/auth", authRoutes);
 app.use("/api/advisory", advisoryRoutes);
 app.use("/api/history", historyRoutes);
+
+
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
