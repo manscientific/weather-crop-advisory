@@ -18,7 +18,7 @@ app.use(express.json());
 
 app.use(
   cors({
-    origin: "http://localhost:3000",
+    origin: "https://frontend-8o5y4w9l2-manscientifics-projects.vercel.app/",
   })
 );
 
