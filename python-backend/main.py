@@ -1,4 +1,4 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException, Request
+from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from google.genai import Client
@@ -7,12 +7,12 @@ from dotenv import load_dotenv
 import json
 import base64
 
-# Load ENV
+# Load ENV file
 load_dotenv(override=True)
 
 app = FastAPI()
 
-# CORS
+# CORS configuration
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -24,23 +24,14 @@ app.add_middleware(
 # Gemini Client
 API_KEY = os.getenv("GEMINI_API_KEY")
 if not API_KEY:
-    raise ValueError("❌ GEMINI_API_KEY missing in .env")
+    raise ValueError("❌ GEMINI_API_KEY not found in .env")
 
 client = Client(api_key=API_KEY)
 
 
-# -------------------------------------------------------------------
-# Small middleware to avoid body-size issues on Railway / Render
-# -------------------------------------------------------------------
-@app.middleware("http")
-async def body_size_patch(request: Request, call_next):
-    request._receive = request._receive
-    return await call_next(request)
-
-
-# -------------------------------------------------------------------
-# DATA MODELS
-# -------------------------------------------------------------------
+# -----------------------------------------------------------
+# ------------- DATA MODELS ---------------------------------
+# -----------------------------------------------------------
 
 class ChatRequest(BaseModel):
     message: str
@@ -61,31 +52,33 @@ class SoilAdviceRequest(BaseModel):
     organic_carbon: float
 
 
-# -------------------------------------------------------------------
-# 1️⃣ CHATBOT
-# -------------------------------------------------------------------
+# -----------------------------------------------------------
+# ------------- 1️⃣ CHATBOT ENDPOINT -------------------------
+# -----------------------------------------------------------
 
 conversation_history = []
 
 @app.post("/api/chatbot")
 async def chatbot(req: ChatRequest):
+
     user_message = req.message.strip()
+
     if not user_message:
         return {"reply": "Please enter a message."}
 
     conversation_history.append({"role": "user", "text": user_message})
 
-    # Last 6 messages only
-    context = "\n".join(
-        [("User" if m["role"] == "user" else "Assistant") + ": " + m["text"]
-         for m in conversation_history[-6:]]
-    )
+    # Get last 6 messages for memory
+    context = ""
+    for msg in conversation_history[-6:]:
+        speaker = "User" if msg["role"] == "user" else "Assistant"
+        context += f"{speaker}: {msg['text']}\n"
 
     prompt = f"""
-You are an agricultural assistant.
-Keep responses short and helpful.
+You are an agricultural assistant chatbot.
+Keep responses short, friendly, and helpful.
 
-Conversation:
+Conversation so far:
 {context}
 
 User: {user_message}
@@ -97,37 +90,38 @@ Assistant:
             model="gemini-2.0-flash",
             contents=prompt
         )
+        bot_reply = result.text.strip()
 
-        reply = result.text.strip()
-
-        conversation_history.append({"role": "assistant", "text": reply})
-        return {"reply": reply}
+        conversation_history.append({"role": "assistant", "text": bot_reply})
+        return {"reply": bot_reply}
 
     except Exception as e:
         print("Chatbot Error:", e)
-        return {"reply": "AI error occurred. Try again later."}
+        return {"reply": "AI is not responding. Try again later."}
 
 
-# -------------------------------------------------------------------
-# 2️⃣ BASIC ADVICE
-# -------------------------------------------------------------------
+
+# -----------------------------------------------------------
+# ------------- 2️⃣ BASIC FERTILIZER/PESTICIDE ADVICE -------
+# -----------------------------------------------------------
 
 @app.post("/get-better-advice")
 async def get_better_advice(req: BasicAdviceRequest):
 
     prompt = f"""
-Suggest better fertilizer & pesticide for {req.cropName}.
-
-Inputs:
+A farmer is growing {req.cropName}.
+He plans to use:
 - Fertilizer: {req.fertilizer}
 - Pesticide: {req.pesticide}
 
-Return ONLY JSON:
+Respond ONLY in clean JSON:
+
 {{
-  "better_fertilizer": "",
-  "fertilizer_reason": "",
-  "better_pesticide": "",
-  "pesticide_reason": ""
+  "better_fertilizer": "best alternative or 'None'",
+  "fertilizer_reason": "simple hindi reasoning in 1-2 lines",
+
+  "better_pesticide": "best alternative or 'None'",
+  "pesticide_reason": "simple hindi reasoning in 1-2 lines"
 }}
 """
 
@@ -136,22 +130,25 @@ Return ONLY JSON:
             model="gemini-2.0-flash",
             contents=prompt
         )
-        text = result.text.replace("```json", "").replace("```", "").strip()
-        return json.loads(text)
+
+        raw = result.text.strip().replace("```json", "").replace("```", "")
+
+        return json.loads(raw)
 
     except Exception as e:
-        print("Advice Error:", e)
+        print("Basic Advice Error:", e)
         return {
             "better_fertilizer": "N/A",
-            "fertilizer_reason": "AI failed.",
+            "fertilizer_reason": "Error occurred.",
             "better_pesticide": "N/A",
-            "pesticide_reason": "AI failed."
+            "pesticide_reason": "Error occurred."
         }
 
 
-# -------------------------------------------------------------------
-# 3️⃣ ECO & SOIL HEALTH ADVICE
-# -------------------------------------------------------------------
+
+# -----------------------------------------------------------
+# ------------- 3️⃣ ECO-FRIENDLY ADVICE + SOIL REPORT -------
+# -----------------------------------------------------------
 
 @app.post("/get-environment-friendly-advice")
 async def get_environment_friendly_advice(req: SoilAdviceRequest):
@@ -159,17 +156,21 @@ async def get_environment_friendly_advice(req: SoilAdviceRequest):
     prompt = f"""
 You are an agricultural sustainability expert.
 
-Soil:
-N={req.nitrogen}, P={req.phosphorus}, K={req.potassium}, pH={req.ph},
-Organic Carbon={req.organic_carbon}%
+Soil Report:
+- Nitrogen: {req.nitrogen}
+- Phosphorus: {req.phosphorus}
+- Potassium: {req.potassium}
+- pH: {req.ph}
+- Organic Carbon: {req.organic_carbon}%
 
 Crop: {req.cropName}
 
-Inputs:
-Fertilizer={req.fertilizer}
-Pesticide={req.pesticide}
+Inputs farmer uses:
+- Fertilizer: {req.fertilizer}
+- Pesticide: {req.pesticide}
 
 Return ONLY JSON:
+
 {{
   "environment_friendly_fertilizer": "",
   "fertilizer_reason": "",
@@ -184,11 +185,11 @@ Return ONLY JSON:
             model="gemini-2.0-flash",
             contents=prompt
         )
-        text = result.text.replace("```json", "").replace("```", "").strip()
-        return json.loads(text)
+        raw = result.text.strip().replace("```json", "").replace("```", "")
+        return json.loads(raw)
 
     except Exception as e:
-        print("Soil Advice Error:", e)
+        print("Eco Advice Error:", e)
         return {
             "environment_friendly_fertilizer": "N/A",
             "fertilizer_reason": "AI failed.",
@@ -198,59 +199,63 @@ Return ONLY JSON:
         }
 
 
-# -------------------------------------------------------------------
-# 4️⃣ LEAF DISEASE DETECTION (FIXED)
-# -------------------------------------------------------------------
+
+# -----------------------------------------------------------
+# ------------- 4️⃣ LEAF DISEASE DETECTION -------------------
+# -----------------------------------------------------------
 
 @app.post("/detect-leaf-disease")
 async def detect_leaf_disease(file: UploadFile = File(...)):
 
     image_bytes = await file.read()
 
-    if len(image_bytes) > 6 * 1024 * 1024:
-        raise HTTPException(400, "Image too large (>6MB).")
+    if len(image_bytes) > 6 * 1024 * 1024:  
+        raise HTTPException(400, "Image too large (>6MB). Resize it.")
 
-    # Convert to base64 but DO NOT embed in text
-    b64_img = base64.b64encode(image_bytes).decode()
-    mime = file.content_type or "image/jpeg"
+    # Convert to base64 data URI
+    content_type = file.content_type or "image/jpeg"
+    b64_img = base64.b64encode(image_bytes).decode("utf-8")
+    data_uri = f"data:{content_type};base64,{b64_img}"
 
-    prompt = """
-Identify the leaf disease and return ONLY JSON:
+    prompt = f"""
+You are a plant disease expert.
 
-{
- "disease_name": "",
- "severity": "",
- "cause": "",
- "chemical_treatment": "",
- "eco_friendly_solution": "",
- "prevention_tips": ""
-}
+Analyze the leaf image below (base64 embedded).
+
+Return ONLY JSON:
+
+{{
+  "disease_name": "",
+  "severity": "",
+  "cause": "",
+  "chemical_treatment": "",
+  "eco_friendly_solution": "",
+  "prevention_tips": ""
+}}
+
+Image:
+{data_uri}
 """
 
     try:
         result = client.models.generate_content(
             model="gemini-2.0-flash",
-            contents=[
-                {"text": prompt},
-                {
-                    "inline_data": {
-                        "mime_type": mime,
-                        "data": b64_img
-                    }
-                }
-            ]
+            contents=prompt
         )
 
-        text = result.text.replace("```json", "").replace("```", "").strip()
+        raw = result.text.strip().replace("```json", "").replace("```", "")
 
-        return json.loads(text)
+        try:
+            return json.loads(raw)
+        except:
+            return {"error": "Could not parse JSON", "raw_output": raw}
 
     except Exception as e:
-        print("Leaf Error:", e)
+        print("Leaf Detection Error:", e)
         return {
             "disease_name": "N/A",
             "severity": "N/A",
-            "cause": "Processing failed",
+            "cause": "AI failed to detect",
             "chemical_treatment": "N/A",
             "eco_friendly_solution": "N/A",
             "prevention_tips": "Try again later.",
@@ -258,9 +263,10 @@ Identify the leaf disease and return ONLY JSON:
         }
 
 
-# -------------------------------------------------------------------
-# RUN SERVER
-# -------------------------------------------------------------------
+
+# -----------------------------------------------------------
+# ------------- SERVER STARTER ------------------------------
+# -----------------------------------------------------------
 
 if __name__ == "__main__":
     import uvicorn
