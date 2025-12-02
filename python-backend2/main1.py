@@ -2,12 +2,10 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import requests
-import smtplib
 import os
 from dotenv import load_dotenv
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
 from apscheduler.schedulers.background import BackgroundScheduler
+import sib_api_v3_sdk
 
 load_dotenv()
 
@@ -15,20 +13,31 @@ app = FastAPI()
 
 # CORS
 app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
+    CORSMiddleware(
+        allow_origins=["*"],
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 )
 
+# ENV VARS
 OPENWEATHER_KEY = os.getenv("OPENWEATHER_KEY")
-EMAIL_SENDER = os.getenv("EMAIL_SENDER")
-EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD")
+BREVO_API_KEY = os.getenv("BREVO_API_KEY")
+BREVO_SENDER_EMAIL = os.getenv("BREVO_SENDER")    # example: yourgmail@gmail.com
+BREVO_SENDER_NAME = os.getenv("BREVO_NAME", "Crop Advisory System")
 
-# Store subscribers in memory
+# Initialize Brevo client
+configuration = sib_api_v3_sdk.Configuration()
+configuration.api_key['api-key'] = BREVO_API_KEY
+api_instance = sib_api_v3_sdk.TransactionalEmailsApi(
+    sib_api_v3_sdk.ApiClient(configuration)
+)
+
+# In-memory subscribers
 subscribers = []
 
-# -------------- Pydantic model --------------
+
+# ---------------------- MODELS -------------------------
 class EmailRequest(BaseModel):
     email: str
     city: str = "Delhi"
@@ -40,31 +49,33 @@ def subscribe(req: EmailRequest):
     return {"message": "Subscription successful!"}
 
 
-# ------------------------------------------------------
-# SEND EMAIL WITH LOGS
-# ------------------------------------------------------
+# -------------------------------------------------------
+# SEND EMAIL USING BREVO
+# -------------------------------------------------------
 def send_email(to_email, subject, body):
-    msg = MIMEMultipart()
-    msg["From"] = EMAIL_SENDER
-    msg["To"] = to_email
-    msg["Subject"] = subject
-    msg.attach(MIMEText(body, "plain"))
+    """
+    Sends formatted HTML email using Brevo API.
+    No domain verification needed.
+    """
+
+    email = sib_api_v3_sdk.SendSmtpEmail(
+        sender={"name": BREVO_SENDER_NAME, "email": BREVO_SENDER_EMAIL},
+        to=[{"email": to_email}],
+        subject=subject,
+        html_content=body
+    )
 
     try:
-        server = smtplib.SMTP("smtp.gmail.com", 587)
-        server.starttls()
-        server.login(EMAIL_SENDER, EMAIL_PASSWORD)
-        server.send_message(msg)
-        server.quit()
-        print(f"Email sent to {to_email}")
+        response = api_instance.send_transac_email(email)
+        print(f"📨 Email sent to {to_email} | Message ID: {response['messageId']}")
 
     except Exception as e:
-        print("Email error:", e)
+        print("❌ Brevo Error:", str(e))
 
 
-# ------------------------------------------------------
+# -------------------------------------------------------
 # HARSH WEATHER DETECTOR
-# ------------------------------------------------------
+# -------------------------------------------------------
 def detect_harsh_weather(weather_item):
     temp = weather_item["main"]["temp"] - 273.15
     wind = weather_item["wind"]["speed"]
@@ -82,16 +93,16 @@ def detect_harsh_weather(weather_item):
     if rain >= 20:
         alerts.append("🌧 Heavy rainfall")
     if "storm" in condition:
-        alerts.append("⛈ Storm coming")
+        alerts.append("⛈ Storm")
     if "snow" in condition:
         alerts.append("❄ Snowfall")
 
     return alerts
 
 
-# ------------------------------------------------------
+# -------------------------------------------------------
 # WEATHER CHECKER (AUTOMATIC)
-# ------------------------------------------------------
+# -------------------------------------------------------
 def auto_check_weather():
 
     print("🔄 Running automatic weather check...")
@@ -100,10 +111,15 @@ def auto_check_weather():
         city = user["city"]
         email = user["email"]
 
-        url = f"https://api.openweathermap.org/data/2.5/forecast?q={city}&appid={OPENWEATHER_KEY}"
+        # Fetch 5-day forecast
+        url = (
+            f"https://api.openweathermap.org/data/2.5/forecast?q={city}"
+            f"&appid={OPENWEATHER_KEY}"
+        )
         response = requests.get(url).json()
 
         if "list" not in response:
+            print(f"⚠ Failed to fetch weather for {city}")
             continue
 
         warnings = []
@@ -111,34 +127,35 @@ def auto_check_weather():
         for item in response["list"]:
             harsh = detect_harsh_weather(item)
             if harsh:
-                date = item["dt_txt"]
-                warnings.append(f"{date}: {', '.join(harsh)}")
+                warnings.append(f"{item['dt_txt']}: {', '.join(harsh)}")
 
+        # If alerts found → Email user
         if warnings:
-            email_body = "🚨 HARSH WEATHER ALERT 🚨\n\n"
-            email_body += "\n".join(warnings)
-            email_body += "\n\nStay safe,\nCrop Advisory System"
+            email_body = "🚨 <b>Harsh Weather Alert</b> 🚨<br><br>"
+            email_body += "<br>".join(warnings)
+            email_body += "<br><br>Stay safe,<br><b>Crop Advisory System</b>"
 
-            send_email(email, "⚠ Harsh Weather Alert!", email_body)
+            send_email(
+                email,
+                "⚠ Harsh Weather Alert!",
+                email_body
+            )
 
     print("✔ Automatic weather check completed.")
 
 
-# ------------------------------------------------------
-# START SCHEDULER
-# ------------------------------------------------------
+# -------------------------------------------------------
+# START SCHEDULER (runs every 24 hours — change to seconds for testing)
+# -------------------------------------------------------
 scheduler = BackgroundScheduler()
 
-# Run every 24 hours
-scheduler.add_job(auto_check_weather, "interval", seconds=2)
-
-# You can also run every hour (optional):
-# scheduler.add_job(auto_check_weather, "interval", hours=1)
+# Every 24 hours → use seconds=2 for testing
+scheduler.add_job(auto_check_weather, "interval", hours=24)
 
 scheduler.start()
-print("⏳ Weather Scheduler Started (runs every 24 hours)")
+print("⏳ Weather Scheduler Started (Runs every 24 hours)")
 
 
 @app.get("/")
 def home():
-    return {"message": "Weather Alert System Running (Auto-check enabled)"}
+    return {"message": "Weather Alert System (Brevo Version) Running!"}

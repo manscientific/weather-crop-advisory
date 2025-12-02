@@ -5,3 +5,4 @@ python-dotenv
 pydantic
 apscheduler
 email-validator
+sib-api-v3-sdk
