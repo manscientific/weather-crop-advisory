@@ -11,38 +11,47 @@ load_dotenv()
 
 app = FastAPI()
 
-# CORS
+# -------------------------------------------------------
+# ✅ FIXED CORS MIDDLEWARE (Railway Compatible)
+# -------------------------------------------------------
 app.add_middleware(
-    CORSMiddleware(
-        allow_origins=["*"],
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
-# ENV VARS
+# -------------------------------------------------------
+# ENVIRONMENT VARIABLES
+# -------------------------------------------------------
 OPENWEATHER_KEY = os.getenv("OPENWEATHER_KEY")
 BREVO_API_KEY = os.getenv("BREVO_API_KEY")
 BREVO_SENDER_EMAIL = os.getenv("BREVO_SENDER")    # example: yourgmail@gmail.com
 BREVO_SENDER_NAME = os.getenv("BREVO_NAME", "Crop Advisory System")
 
-# Initialize Brevo client
+# -------------------------------------------------------
+# INIT BREVO CLIENT
+# -------------------------------------------------------
 configuration = sib_api_v3_sdk.Configuration()
-configuration.api_key['api-key'] = BREVO_API_KEY
+configuration.api_key["api-key"] = BREVO_API_KEY
 api_instance = sib_api_v3_sdk.TransactionalEmailsApi(
     sib_api_v3_sdk.ApiClient(configuration)
 )
 
-# In-memory subscribers
+# In-memory subscribers list
 subscribers = []
 
-
-# ---------------------- MODELS -------------------------
+# -------------------------------------------------------
+# MODELS
+# -------------------------------------------------------
 class EmailRequest(BaseModel):
     email: str
     city: str = "Delhi"
 
 
+# -------------------------------------------------------
+# ADD SUBSCRIBER
+# -------------------------------------------------------
 @app.post("/subscribe-weather-alert")
 def subscribe(req: EmailRequest):
     subscribers.append({"email": req.email, "city": req.city})
@@ -53,28 +62,22 @@ def subscribe(req: EmailRequest):
 # SEND EMAIL USING BREVO
 # -------------------------------------------------------
 def send_email(to_email, subject, body):
-    """
-    Sends formatted HTML email using Brevo API.
-    No domain verification needed.
-    """
-
-    email = sib_api_v3_sdk.SendSmtpEmail(
+    email_content = sib_api_v3_sdk.SendSmtpEmail(
         sender={"name": BREVO_SENDER_NAME, "email": BREVO_SENDER_EMAIL},
         to=[{"email": to_email}],
         subject=subject,
-        html_content=body
+        html_content=body,
     )
 
     try:
-        response = api_instance.send_transac_email(email)
+        response = api_instance.send_transac_email(email_content)
         print(f"📨 Email sent to {to_email} | Message ID: {response['messageId']}")
-
     except Exception as e:
         print("❌ Brevo Error:", str(e))
 
 
 # -------------------------------------------------------
-# HARSH WEATHER DETECTOR
+# HARSH WEATHER DETECTION LOGIC
 # -------------------------------------------------------
 def detect_harsh_weather(weather_item):
     temp = weather_item["main"]["temp"] - 273.15
@@ -101,7 +104,7 @@ def detect_harsh_weather(weather_item):
 
 
 # -------------------------------------------------------
-# WEATHER CHECKER (AUTOMATIC)
+# AUTO WEATHER CHECKER
 # -------------------------------------------------------
 def auto_check_weather():
 
@@ -111,11 +114,7 @@ def auto_check_weather():
         city = user["city"]
         email = user["email"]
 
-        # Fetch 5-day forecast
-        url = (
-            f"https://api.openweathermap.org/data/2.5/forecast?q={city}"
-            f"&appid={OPENWEATHER_KEY}"
-        )
+        url = f"https://api.openweathermap.org/data/2.5/forecast?q={city}&appid={OPENWEATHER_KEY}"
         response = requests.get(url).json()
 
         if "list" not in response:
@@ -129,33 +128,33 @@ def auto_check_weather():
             if harsh:
                 warnings.append(f"{item['dt_txt']}: {', '.join(harsh)}")
 
-        # If alerts found → Email user
         if warnings:
-            email_body = "🚨 <b>Harsh Weather Alert</b> 🚨<br><br>"
-            email_body += "<br>".join(warnings)
-            email_body += "<br><br>Stay safe,<br><b>Crop Advisory System</b>"
-
-            send_email(
-                email,
-                "⚠ Harsh Weather Alert!",
-                email_body
+            body = (
+                "🚨 <b>Harsh Weather Alert</b> 🚨<br><br>"
+                + "<br>".join(warnings)
+                + "<br><br>Stay safe,<br><b>Crop Advisory System</b>"
             )
+
+            send_email(email, "⚠ Harsh Weather Alert!", body)
 
     print("✔ Automatic weather check completed.")
 
 
 # -------------------------------------------------------
-# START SCHEDULER (runs every 24 hours — change to seconds for testing)
+# BACKGROUND SCHEDULER
 # -------------------------------------------------------
 scheduler = BackgroundScheduler()
 
-# Every 24 hours → use seconds=2 for testing
+# ▶️ Change seconds=2 for testing; use hours=24 in production
 scheduler.add_job(auto_check_weather, "interval", seconds=2)
 
 scheduler.start()
-print("⏳ Weather Scheduler Started (Runs every 24 hours)")
+print("⏳ Weather Scheduler Started")
 
 
+# -------------------------------------------------------
+# HOME ROUTE
+# -------------------------------------------------------
 @app.get("/")
 def home():
     return {"message": "Weather Alert System (Brevo Version) Running!"}
