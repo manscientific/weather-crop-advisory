@@ -150,7 +150,7 @@ def auto_check_weather():
 scheduler = BackgroundScheduler()
 
 # Every 24 hours → use seconds=2 for testing
-scheduler.add_job(auto_check_weather, "interval", hours=24)
+scheduler.add_job(auto_check_weather, "interval", seconds=2)
 
 scheduler.start()
 print("⏳ Weather Scheduler Started (Runs every 24 hours)")
