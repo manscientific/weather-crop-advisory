@@ -12,7 +12,7 @@ load_dotenv()
 app = FastAPI()
 
 # -------------------------------------------------------
-# ✅ FIXED CORS MIDDLEWARE (Railway Compatible)
+# CORS (FIXED)
 # -------------------------------------------------------
 app.add_middleware(
     CORSMiddleware,
@@ -22,15 +22,15 @@ app.add_middleware(
 )
 
 # -------------------------------------------------------
-# ENVIRONMENT VARIABLES
+# ENV VARIABLES
 # -------------------------------------------------------
 OPENWEATHER_KEY = os.getenv("OPENWEATHER_KEY")
 BREVO_API_KEY = os.getenv("BREVO_API_KEY")
-BREVO_SENDER_EMAIL = os.getenv("BREVO_SENDER")    # example: yourgmail@gmail.com
+BREVO_SENDER_EMAIL = os.getenv("BREVO_SENDER")   # Example: yourgmail@gmail.com
 BREVO_SENDER_NAME = os.getenv("BREVO_NAME", "Crop Advisory System")
 
 # -------------------------------------------------------
-# INIT BREVO CLIENT
+# BREVO CLIENT SETUP
 # -------------------------------------------------------
 configuration = sib_api_v3_sdk.Configuration()
 configuration.api_key["api-key"] = BREVO_API_KEY
@@ -38,11 +38,11 @@ api_instance = sib_api_v3_sdk.TransactionalEmailsApi(
     sib_api_v3_sdk.ApiClient(configuration)
 )
 
-# In-memory subscribers list
+# In-memory subscriber list
 subscribers = []
 
 # -------------------------------------------------------
-# MODELS
+# MODEL
 # -------------------------------------------------------
 class EmailRequest(BaseModel):
     email: str
@@ -50,7 +50,7 @@ class EmailRequest(BaseModel):
 
 
 # -------------------------------------------------------
-# ADD SUBSCRIBER
+# SUBSCRIBE ENDPOINT
 # -------------------------------------------------------
 @app.post("/subscribe-weather-alert")
 def subscribe(req: EmailRequest):
@@ -62,6 +62,7 @@ def subscribe(req: EmailRequest):
 # SEND EMAIL USING BREVO
 # -------------------------------------------------------
 def send_email(to_email, subject, body):
+
     email_content = sib_api_v3_sdk.SendSmtpEmail(
         sender={"name": BREVO_SENDER_NAME, "email": BREVO_SENDER_EMAIL},
         to=[{"email": to_email}],
@@ -71,7 +72,7 @@ def send_email(to_email, subject, body):
 
     try:
         response = api_instance.send_transac_email(email_content)
-        print(f"📨 Email sent to {to_email} | Message ID: {response['messageId']}")
+        print(f"📨 Email sent to {to_email} | Message ID: {response.message_id}")
     except Exception as e:
         print("❌ Brevo Error:", str(e))
 
@@ -145,7 +146,7 @@ def auto_check_weather():
 # -------------------------------------------------------
 scheduler = BackgroundScheduler()
 
-# ▶️ Change seconds=2 for testing; use hours=24 in production
+# Change seconds=2 for testing; hours=24 in production
 scheduler.add_job(auto_check_weather, "interval", seconds=2)
 
 scheduler.start()
