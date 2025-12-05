@@ -158,6 +158,7 @@ async def get_environment_friendly_advice(req: SoilAdviceRequest):
 
     prompt = f"""
 You are an agricultural sustainability expert.
+Respond ONLY in this language: {req.language}
 
 Soil:
 N={req.nitrogen}, P={req.phosphorus}, K={req.potassium}, pH={req.ph},
@@ -169,7 +170,7 @@ Inputs:
 Fertilizer={req.fertilizer}
 Pesticide={req.pesticide}
 
-Return ONLY JSON:
+Return ONLY JSON in the selected language:
 {{
   "environment_friendly_fertilizer": "",
   "fertilizer_reason": "",
