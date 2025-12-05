@@ -44,11 +44,13 @@ async def body_size_patch(request: Request, call_next):
 
 class ChatRequest(BaseModel):
     message: str
+    language: str = "English"
 
 class BasicAdviceRequest(BaseModel):
     cropName: str
     fertilizer: str
     pesticide: str
+    language: str = "English"
 
 class SoilAdviceRequest(BaseModel):
     cropName: str
@@ -59,6 +61,7 @@ class SoilAdviceRequest(BaseModel):
     potassium: float
     ph: float
     organic_carbon: float
+    language: str = "English"
 
 
 # -------------------------------------------------------------------
@@ -84,6 +87,7 @@ async def chatbot(req: ChatRequest):
     prompt = f"""
 You are an agricultural assistant.
 Keep responses short and helpful.
+Respond in {req.language} language.
 
 Conversation:
 {context}
@@ -117,12 +121,13 @@ async def get_better_advice(req: BasicAdviceRequest):
 
     prompt = f"""
 Suggest better fertilizer & pesticide for {req.cropName}.
+Respond in {req.language} language.
 
 Inputs:
 - Fertilizer: {req.fertilizer}
 - Pesticide: {req.pesticide}
 
-Return ONLY JSON:
+Return ONLY JSON in {req.language} language:
 {{
   "better_fertilizer": "",
   "fertilizer_reason": "",
@@ -158,6 +163,7 @@ async def get_environment_friendly_advice(req: SoilAdviceRequest):
 
     prompt = f"""
 You are an agricultural sustainability expert.
+Respond in {req.language} language.
 
 Soil:
 N={req.nitrogen}, P={req.phosphorus}, K={req.potassium}, pH={req.ph},
@@ -169,7 +175,7 @@ Inputs:
 Fertilizer={req.fertilizer}
 Pesticide={req.pesticide}
 
-Return ONLY JSON:
+Return ONLY JSON in {req.language} language:
 {{
   "environment_friendly_fertilizer": "",
   "fertilizer_reason": "",
@@ -203,7 +209,7 @@ Return ONLY JSON:
 # -------------------------------------------------------------------
 
 @app.post("/detect-leaf-disease")
-async def detect_leaf_disease(file: UploadFile = File(...)):
+async def detect_leaf_disease(file: UploadFile = File(...), language: str = "English"):
 
     image_bytes = await file.read()
 
@@ -214,17 +220,17 @@ async def detect_leaf_disease(file: UploadFile = File(...)):
     b64_img = base64.b64encode(image_bytes).decode()
     mime = file.content_type or "image/jpeg"
 
-    prompt = """
-Identify the leaf disease and return ONLY JSON:
+    prompt = f"""
+Identify the leaf disease and return ONLY JSON in {language} language:
 
-{
+{{
  "disease_name": "",
  "severity": "",
  "cause": "",
  "chemical_treatment": "",
  "eco_friendly_solution": "",
  "prevention_tips": ""
-}
+}}
 """
 
     try:
