@@ -153,6 +153,26 @@ Return ONLY JSON:
 # 3️⃣ ECO & SOIL HEALTH ADVICE
 # -------------------------------------------------------------------
 
+from fastapi import FastAPI
+from pydantic import BaseModel
+import json
+
+app = FastAPI()
+
+class SoilAdviceRequest(BaseModel):
+    cropName: str
+    fertilizer: str
+    pesticide: str
+    nitrogen: float
+    phosphorus: float
+    potassium: float
+    ph: float
+    organic_carbon: float
+    language: str  # ✅ NEW FIELD ADDED
+
+# Your existing Gemini client code remains unchanged
+# result = client.models.generate_content(...)
+
 @app.post("/get-environment-friendly-advice")
 async def get_environment_friendly_advice(req: SoilAdviceRequest):
 
@@ -185,6 +205,7 @@ Return ONLY JSON in the selected language:
             model="gemini-2.0-flash",
             contents=prompt
         )
+
         text = result.text.replace("```json", "").replace("```", "").strip()
         return json.loads(text)
 
@@ -197,7 +218,6 @@ Return ONLY JSON in the selected language:
             "pesticide_reason": "AI failed.",
             "soil_health_advice": "Try again later."
         }
-
 
 # -------------------------------------------------------------------
 # 4️⃣ LEAF DISEASE DETECTION (FIXED)
